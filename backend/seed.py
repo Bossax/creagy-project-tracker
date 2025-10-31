@@ -27,7 +27,70 @@ def parse_date(value: str | None) -> date | None:
 def load_seed_data(path: Path) -> list[dict[str, Any]]:
     """Load structured seed data from a JSON file."""
     with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+        data = json.load(handle)
+
+    if isinstance(data, list):
+        return data
+
+    if isinstance(data, dict) and {"projects", "tasks"}.issubset(data):
+        projects = data.get("projects") or []
+        tasks = data.get("tasks") or []
+
+        print(
+            f"Detected combined JSON format with {len(projects)} projects and {len(tasks)} tasks."
+        )
+
+        project_records: list[dict[str, Any]] = []
+        projects_by_id: dict[Any, dict[str, Any]] = {}
+        projects_by_name: dict[str, dict[str, Any]] = {}
+
+        for project in projects:
+            project_copy = dict(project)
+            project_copy.setdefault("tasks", [])
+            project_records.append(project_copy)
+
+            for key in ("id", "project_id"):
+                identifier = project.get(key)
+                if identifier is not None and identifier not in projects_by_id:
+                    projects_by_id[identifier] = project_copy
+
+            name = project.get("name")
+            if isinstance(name, str) and name.lower() not in projects_by_name:
+                projects_by_name[name.lower()] = project_copy
+
+        unmatched_tasks: list[dict[str, Any]] = []
+
+        for task in tasks:
+            assigned = False
+
+            project_identifier = task.get("project_id")
+            if project_identifier is not None:
+                project = projects_by_id.get(project_identifier)
+                if project is not None:
+                    project.setdefault("tasks", []).append(task)
+                    assigned = True
+
+            if not assigned:
+                project_name = task.get("project_name") or task.get("project")
+                if isinstance(project_name, str):
+                    project = projects_by_name.get(project_name.lower())
+                    if project is not None:
+                        project.setdefault("tasks", []).append(task)
+                        assigned = True
+
+            if not assigned:
+                unmatched_tasks.append(task)
+
+        if unmatched_tasks:
+            print(
+                "Warning:",
+                len(unmatched_tasks),
+                "tasks could not be matched to any project during seeding.",
+            )
+
+        return project_records
+
+    raise ValueError("Seed data JSON must be a list or contain 'projects' and 'tasks' keys")
 
 
 def initialise_schema(drop_existing: bool = False) -> None:
@@ -106,8 +169,6 @@ def main() -> None:
         raise FileNotFoundError(f"Seed data file not found: {data_file}")
 
     records = load_seed_data(data_file)
-    if not isinstance(records, list):
-        raise ValueError("Seed data must be a list of project dictionaries")
 
     initialise_schema(drop_existing=args.drop)
 
