@@ -1,0 +1,64 @@
+[
+  {
+    "name": "Website Redesign",
+    "owner": "Alice Johnson",
+    "status": "In Progress",
+    "start_date": "2024-01-15",
+    "end_date": null,
+    "notes": "Modernize the marketing site with new branding.",
+    "tasks": [
+      {
+        "name": "Audit existing content",
+        "owner": "Bob Smith",
+        "status": "Completed",
+        "due_date": "2024-02-01",
+        "notes": "Inventory of all pages finished."
+      },
+      {
+        "name": "Design new landing page",
+        "owner": "Carmen Diaz",
+        "status": "In Progress",
+        "due_date": "2024-02-20",
+        "notes": "Figma concepts pending approval."
+      },
+      {
+        "name": "Implement responsive layout",
+        "owner": "Devon Lee",
+        "status": "Not Started",
+        "due_date": "2024-03-05",
+        "notes": "Awaiting final design sign-off."
+      }
+    ]
+  },
+  {
+    "name": "Mobile App Launch",
+    "owner": "Priya Patel",
+    "status": "Planning",
+    "start_date": "2024-02-05",
+    "end_date": "2024-06-30",
+    "notes": "Kick-off for v1 of the project tracker mobile app.",
+    "tasks": [
+      {
+        "name": "Define MVP scope",
+        "owner": "Elliot Jones",
+        "status": "Completed",
+        "due_date": "2024-02-15",
+        "notes": "Scope approved by stakeholders."
+      },
+      {
+        "name": "Set up CI/CD pipeline",
+        "owner": "Fatima Khan",
+        "status": "In Progress",
+        "due_date": "2024-03-10",
+        "notes": "Working with DevOps to integrate testing."
+      },
+      {
+        "name": "Beta tester recruitment",
+        "owner": "George Miller",
+        "status": "Not Started",
+        "due_date": "2024-04-01",
+        "notes": "Needs marketing assets before outreach."
+      }
+    ]
+  }
+]
