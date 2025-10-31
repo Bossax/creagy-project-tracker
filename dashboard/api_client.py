@@ -147,5 +147,10 @@ class APIClient:
 
         return self.get_json("/health")
 
+    def portfolio_report(self) -> Mapping[str, Any]:
+        """Return aggregated company-level metrics from the backend API."""
+
+        return self.get_json("/reports/portfolio")
+
 
 __all__ = ["APIClient", "APIClientError"]
