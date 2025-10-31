@@ -6,14 +6,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
-COPY backend ./backend
-COPY dashboard ./dashboard
-COPY data ./data
-COPY alembic.ini ./alembic.ini
-COPY alembic ./alembic
-COPY scripts ./scripts
-RUN pip install --upgrade pip && pip install .
+COPY requirements.txt ./
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+COPY . .
 
 EXPOSE 8000
 
