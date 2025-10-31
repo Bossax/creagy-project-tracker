@@ -88,12 +88,44 @@ class APIClient:
         projects = self.get_json("/projects/")
         return list(projects)
 
+    def create_project(self, payload: Mapping[str, Any]) -> MutableMapping[str, Any]:
+        """Create a new project via the backend API."""
+
+        response = self.request("POST", "/projects/", json=dict(payload))
+        try:
+            return response.json()
+        except ValueError as exc:  # pragma: no cover - defensive
+            msg = "API response did not contain valid JSON."
+            raise APIClientError(msg) from exc
+
+    def update_project(
+        self, project_id: int, payload: Mapping[str, Any]
+    ) -> MutableMapping[str, Any]:
+        """Update a project via the backend API and return the updated object."""
+
+        response = self.request("PUT", f"/projects/{project_id}", json=dict(payload))
+        try:
+            return response.json()
+        except ValueError as exc:  # pragma: no cover - defensive
+            msg = "API response did not contain valid JSON."
+            raise APIClientError(msg) from exc
+
     def list_tasks(self, *, project_id: Optional[int] = None) -> list[MutableMapping[str, Any]]:
         """Return the collection of tasks, optionally filtered by project."""
 
         params = {"project_id": project_id} if project_id is not None else None
         tasks = self.get_json("/tasks/", params=params)
         return list(tasks)
+
+    def create_task(self, payload: Mapping[str, Any]) -> MutableMapping[str, Any]:
+        """Create a task via the backend API."""
+
+        response = self.request("POST", "/tasks/", json=dict(payload))
+        try:
+            return response.json()
+        except ValueError as exc:  # pragma: no cover - defensive
+            msg = "API response did not contain valid JSON."
+            raise APIClientError(msg) from exc
 
     def update_task(self, task_id: int, payload: Mapping[str, Any]) -> MutableMapping[str, Any]:
         """Update a task via the backend API and return the updated object."""
@@ -104,6 +136,11 @@ class APIClient:
         except ValueError as exc:  # pragma: no cover - defensive
             msg = "API response did not contain valid JSON."
             raise APIClientError(msg) from exc
+
+    def generate_project_report(self, project_id: int) -> Mapping[str, Any]:
+        """Trigger weekly report generation for a project."""
+
+        return self.get_json(f"/projects/{project_id}/weekly-report")
 
     def health(self) -> Mapping[str, Any]:
         """Return the backend service health payload."""

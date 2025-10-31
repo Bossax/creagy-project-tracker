@@ -1,7 +1,7 @@
 """Pydantic schemas for the Creagy project tracker API."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +16,8 @@ class ProjectBase(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     notes: Optional[str] = None
+    budget_allocated: Optional[float] = Field(None, ge=0)
+    budget_spent: Optional[float] = Field(None, ge=0)
 
 
 class ProjectCreate(ProjectBase):
@@ -73,6 +75,37 @@ class Project(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProjectBudget(BaseModel):
+    """Summary of project budget utilisation."""
+
+    allocated: float = Field(0.0, ge=0)
+    spent: float = Field(0.0, ge=0)
+    remaining: float = Field(0.0)
+
+
+class ProjectReportTask(BaseModel):
+    """Minimal task details surfaced in weekly reports."""
+
+    id: Optional[int] = None
+    name: str
+    owner: Optional[str] = None
+    status: Optional[str] = None
+    due_date: Optional[date] = None
+
+
+class ProjectWeeklyReport(BaseModel):
+    """Structured payload returned when generating weekly reports."""
+
+    project_id: int
+    project_name: str
+    generated_at: datetime
+    status_breakdown: dict[str, int]
+    completion_percentage: float = Field(ge=0, le=100)
+    budget: ProjectBudget
+    upcoming_tasks: list[ProjectReportTask] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+
 __all__ = [
     "ProjectBase",
     "ProjectCreate",
@@ -82,4 +115,7 @@ __all__ = [
     "TaskCreate",
     "TaskUpdate",
     "Task",
+    "ProjectBudget",
+    "ProjectReportTask",
+    "ProjectWeeklyReport",
 ]
