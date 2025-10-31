@@ -3,4 +3,5 @@
 __all__ = [
     "projects",
     "tasks",
+    "reports",
 ]

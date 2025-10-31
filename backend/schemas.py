@@ -106,6 +106,61 @@ class ProjectWeeklyReport(BaseModel):
     notes: Optional[str] = None
 
 
+class PortfolioBudgetSummary(BaseModel):
+    """Aggregate budget information across the project portfolio."""
+
+    allocated: float = Field(0.0, ge=0)
+    spent: float = Field(0.0, ge=0)
+    remaining: float = Field(0.0)
+    utilisation: float = Field(0.0, ge=0, le=100)
+
+
+class ProjectHealthBreakdown(BaseModel):
+    """Number of projects in a given health/status category."""
+
+    status: str
+    projects: int = Field(0, ge=0)
+
+
+class TaskStatusBreakdown(BaseModel):
+    """Distribution of tasks by workflow status."""
+
+    status: str
+    tasks: int = Field(0, ge=0)
+
+
+class ProjectProgressSummary(BaseModel):
+    """Completion details for a single project within the portfolio."""
+
+    project_id: int
+    project_name: str
+    status: str
+    completion_percentage: float = Field(0.0, ge=0, le=100)
+    total_tasks: int = Field(0, ge=0)
+    completed_tasks: int = Field(0, ge=0)
+
+
+class ManDayAllocation(BaseModel):
+    """Total man-day allocation captured across project tasks."""
+
+    project_id: int
+    project_name: str
+    man_days: float = Field(0.0, ge=0)
+
+
+class PortfolioReport(BaseModel):
+    """Leadership-level overview of the entire delivery portfolio."""
+
+    project_count: int = Field(0, ge=0)
+    active_projects: int = Field(0, ge=0)
+    total_tasks: int = Field(0, ge=0)
+    budget: PortfolioBudgetSummary = Field(default_factory=PortfolioBudgetSummary)
+    project_health: list[ProjectHealthBreakdown] = Field(default_factory=list)
+    task_status: list[TaskStatusBreakdown] = Field(default_factory=list)
+    project_progress: list[ProjectProgressSummary] = Field(default_factory=list)
+    man_day_allocation: list[ManDayAllocation] = Field(default_factory=list)
+
+
 __all__ = [
     "ProjectBase",
     "ProjectCreate",
@@ -118,4 +173,10 @@ __all__ = [
     "ProjectBudget",
     "ProjectReportTask",
     "ProjectWeeklyReport",
+    "PortfolioBudgetSummary",
+    "ProjectHealthBreakdown",
+    "TaskStatusBreakdown",
+    "ProjectProgressSummary",
+    "ManDayAllocation",
+    "PortfolioReport",
 ]
