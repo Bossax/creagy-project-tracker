@@ -57,6 +57,8 @@ def seed_database(records: Iterable[dict[str, Any]]) -> None:
                 start_date=parse_date(project_data.get("start_date")),
                 end_date=parse_date(project_data.get("end_date")),
                 notes=project_data.get("notes"),
+                budget_allocated=project_data.get("budget_allocated"),
+                budget_spent=project_data.get("budget_spent"),
             )
             session.add(project)
             session.flush()  # Ensure ``project.id`` is available for tasks.

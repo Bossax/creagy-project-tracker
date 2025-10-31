@@ -6,6 +6,8 @@
     "start_date": "2024-01-15",
     "end_date": null,
     "notes": "Modernize the marketing site with new branding.",
+    "budget_allocated": 120000,
+    "budget_spent": 45000,
     "tasks": [
       {
         "name": "Audit existing content",
@@ -37,6 +39,8 @@
     "start_date": "2024-02-05",
     "end_date": "2024-06-30",
     "notes": "Kick-off for v1 of the project tracker mobile app.",
+    "budget_allocated": 200000,
+    "budget_spent": 60000,
     "tasks": [
       {
         "name": "Define MVP scope",

@@ -1,9 +1,9 @@
 """Streamlit dashboard entrypoint for the Creagy project tracker."""
 from __future__ import annotations
 
+import sys
 from collections import Counter
 from pathlib import Path
-import sys
 from typing import Any
 
 import streamlit as st
@@ -11,10 +11,13 @@ import streamlit as st
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parent.parent))
     from dashboard.api_client import APIClient, APIClientError  # type: ignore[import-not-found]
-    from dashboard.views import render_team_member_view  # type: ignore[import-not-found]
+    from dashboard.views import (  # type: ignore[import-not-found]
+        render_project_manager_view,
+        render_team_member_view,
+    )
 else:
     from .api_client import APIClient, APIClientError
-    from .views import render_team_member_view
+    from .views import render_project_manager_view, render_team_member_view
 
 st.set_page_config(
     page_title="Creagy Project Tracker",
@@ -99,47 +102,6 @@ def normalise_status(value: str | None) -> str:
     return value or "Unknown"
 
 
-def render_project_manager_view(project_items: list[dict[str, Any]], task_items: list[dict[str, Any]]) -> None:
-    """Render an overview tailored to project managers."""
-
-    st.subheader("Project Oversight")
-    if not project_items:
-        st.info("Projects will appear here once they are created in the backend service.")
-        return
-
-    project_lookup = {
-        f"#{project.get('id', '?')} · {project.get('name', 'Project')}": project
-        for project in project_items
-    }
-    project_name = role_controls.selectbox("Active project", list(project_lookup))
-    selected_project = project_lookup.get(project_name, {})
-
-    st.markdown(
-        "Track scope, staffing, and task completion for each project. Future iterations can "
-        "add burndown charts, sprint reports, or integrations with planning tools."
-    )
-
-    cols = st.columns(3)
-    cols[0].metric("Status", selected_project.get("status", "Not set"))
-    cols[1].metric("Owner", selected_project.get("owner", "Unassigned"))
-
-    start: str | None = selected_project.get("start_date")
-    end: str | None = selected_project.get("end_date")
-    schedule = "TBD"
-    if start or end:
-        start_date = start or "?"
-        end_date = end or "?"
-        schedule = f"{start_date} → {end_date}"
-    cols[2].metric("Schedule", schedule)
-
-    related_tasks = [task for task in task_items if task.get("project_id") == selected_project.get("id")]
-    st.markdown("### Tasks")
-    if related_tasks:
-        st.dataframe(related_tasks, hide_index=True)
-    else:
-        st.warning("This project does not have any tasks assigned yet.")
-
-
 def render_company_manager_view(project_items: list[dict[str, Any]], task_items: list[dict[str, Any]]) -> None:
     """Render a leadership summary across the organisation."""
 
@@ -188,6 +150,13 @@ if role == "Team Member":
         normalise_status=normalise_status,
     )
 elif role == "Project Manager":
-    render_project_manager_view(projects, tasks)
+    render_project_manager_view(
+        projects,
+        tasks,
+        controls_container=role_controls,
+        api_client=client,
+        normalise_owner=normalise_owner,
+        normalise_status=normalise_status,
+    )
 else:
     render_company_manager_view(projects, tasks)

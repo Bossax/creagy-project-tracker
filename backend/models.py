@@ -1,7 +1,7 @@
 """SQLAlchemy ORM models for the Creagy project tracker."""
 from __future__ import annotations
 
-from sqlalchemy import Column, Date, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, Date, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -19,6 +19,8 @@ class Project(Base):
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
+    budget_allocated = Column(Float, nullable=True)
+    budget_spent = Column(Float, nullable=True)
 
     tasks = relationship(
         "Task",
