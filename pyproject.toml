@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "creagy-project-tracker"
+version = "0.1.0"
+description = "FastAPI backend skeleton for the Creagy project tracker."
+authors = [{ name = "Creagy Team" }]
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.1",
+    "SQLAlchemy>=2.0.0",
+    "psycopg[binary]>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
