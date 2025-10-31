@@ -3,8 +3,12 @@
 from fastapi import FastAPI
 
 from .config import get_settings
+from .routers import projects, tasks
 
 app = FastAPI(title="Creagy Project Tracker")
+
+app.include_router(projects.router)
+app.include_router(tasks.router)
 
 
 @app.on_event("startup")
