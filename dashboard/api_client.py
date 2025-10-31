@@ -95,6 +95,16 @@ class APIClient:
         tasks = self.get_json("/tasks/", params=params)
         return list(tasks)
 
+    def update_task(self, task_id: int, payload: Mapping[str, Any]) -> MutableMapping[str, Any]:
+        """Update a task via the backend API and return the updated object."""
+
+        response = self.request("PUT", f"/tasks/{task_id}", json=dict(payload))
+        try:
+            return response.json()
+        except ValueError as exc:  # pragma: no cover - defensive
+            msg = "API response did not contain valid JSON."
+            raise APIClientError(msg) from exc
+
     def health(self) -> Mapping[str, Any]:
         """Return the backend service health payload."""
 

@@ -2,11 +2,19 @@
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
+import sys
 from typing import Any
 
 import streamlit as st
 
-from api_client import APIClient, APIClientError
+if __package__ in (None, ""):
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
+    from dashboard.api_client import APIClient, APIClientError  # type: ignore[import-not-found]
+    from dashboard.views import render_team_member_view  # type: ignore[import-not-found]
+else:
+    from .api_client import APIClient, APIClientError
+    from .views import render_team_member_view
 
 st.set_page_config(
     page_title="Creagy Project Tracker",
@@ -91,35 +99,6 @@ def normalise_status(value: str | None) -> str:
     return value or "Unknown"
 
 
-def render_team_member_view(task_items: list[dict[str, Any]]) -> None:
-    """Render a focused workspace for individual contributors."""
-
-    st.subheader("My Tasks")
-    if not task_items:
-        st.info("No tasks available yet. Create tasks via the FastAPI backend to populate the list.")
-        return
-
-    owners = sorted({normalise_owner(task.get("owner")) for task in task_items})
-    selected_owner = role_controls.selectbox("Team member", owners)
-
-    filtered_tasks = [task for task in task_items if normalise_owner(task.get("owner")) == selected_owner]
-
-    st.markdown(
-        "Use the filters below to prioritise work and follow upcoming deadlines. "
-        "Additional views such as burndown charts or daily stand-ups can be layered on later."
-    )
-
-    if filtered_tasks:
-        status_counter = Counter(normalise_status(task.get("status")) for task in filtered_tasks)
-        cols = st.columns(3)
-        for idx, label in enumerate(["In Progress", "Blocked", "Completed"]):
-            cols[idx % 3].metric(label, status_counter.get(label, 0))
-
-        st.dataframe(filtered_tasks, hide_index=True)
-    else:
-        st.warning("No tasks match the selected filters just yet.")
-
-
 def render_project_manager_view(project_items: list[dict[str, Any]], task_items: list[dict[str, Any]]) -> None:
     """Render an overview tailored to project managers."""
 
@@ -201,7 +180,13 @@ if projects_error:
     )
 
 if role == "Team Member":
-    render_team_member_view(tasks)
+    render_team_member_view(
+        tasks,
+        controls_container=role_controls,
+        api_client=client,
+        normalise_owner=normalise_owner,
+        normalise_status=normalise_status,
+    )
 elif role == "Project Manager":
     render_project_manager_view(projects, tasks)
 else:
