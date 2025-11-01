@@ -1,118 +1,137 @@
 # Creagy Project Tracker
 
-Prototype project tracker routine for internal use.
+The Creagy Project Tracker replaces spreadsheet-based project tracking with a modular FastAPI backend and Streamlit dashboard. The platform supports role-based workflows for consultants, project managers, and company leadership while keeping a single source of truth in PostgreSQL.
 
-## Architecture overview
+## Architecture
 
-- **Backend:** FastAPI application exposing project, task, and reporting endpoints. SQLAlchemy
-  is used for persistence and can point to SQLite (default) or PostgreSQL via environment
-  configuration.
-- **Dashboard:** Streamlit app with tailored views for different personas. The UI consumes
-  the FastAPI service and surfaces summary metrics, CRUD helpers, and workload tracking.
-- **Database:** PostgreSQL is recommended for production-like usage. SQLite is used by
-  default for local development and automated tests.
+- **Backend:** FastAPI + SQLAlchemy ORM, PostgreSQL persistence, REST endpoints for projects, tasks, and metrics.
+- **Frontend:** Streamlit dashboard with dedicated views for each role.
+- **Data:** Demo dataset stored in `backend/data/sample_data.json`; seeded via `python -m backend.seed`.
+- **Containerization:** Docker Compose orchestrates the PostgreSQL database, backend API, and dashboard UI.
 
 ## Prerequisites
 
 - Python 3.11+
-- Optional: Docker & Docker Compose for containerised workflow.
+- PostgreSQL 14+ (for local development)
+- Node dependencies are not required.
 
-## Local development
+Recommended optional tools:
 
-Clone the repository and install dependencies (including developer tooling):
+- `pipx` or virtual environments for dependency isolation
+- Docker Desktop (or compatible engine) for containerized workflows
 
-```bash
-git clone https://github.com/creagy/creagy-project-tracker.git
-cd creagy-project-tracker
-python -m venv .venv
-source .venv/bin/activate  # On Windows use `.venv\Scripts\activate`
-pip install -e .[dev]
-```
+## Getting Started (Local)
 
-### Running the FastAPI backend
+1. **Clone & install**
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate  # Windows
+   # source .venv/bin/activate  # macOS/Linux
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
 
-By default the backend uses a local SQLite database. To switch to PostgreSQL provide a
-`DATABASE_URL`, e.g. `postgresql+psycopg://user:password@localhost:5432/tracker`.
+2. **Configure environment variables**
+   ```bash
+   copy .env.example .env  # adjust DATABASE_URL / API_BASE_URL as needed
+   ```
 
-```bash
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-```
+3. **Prepare the database**
+   - Ensure PostgreSQL is running and matches `DATABASE_URL`.
+   - Seed demo data:
+     ```bash
+     python -m backend.seed
+     ```
 
-Visit `http://localhost:8000/docs` for the interactive API documentation.
+4. **Run the services**
+   ```bash
+   uvicorn backend.main:app --reload
+   streamlit run dashboard/app.py
+   ```
 
-### Running the Streamlit dashboard
+5. **Open the tools**
+   - API docs: http://localhost:8000/docs
+   - Dashboard: http://localhost:8501
 
-Start the Streamlit UI once the backend is online. Point `API_BASE_URL` to the FastAPI
-instance if it differs from the default `http://localhost:8000`.
+## Role-Based Features
 
-```bash
-export API_BASE_URL=http://localhost:8000  # Optional
-streamlit run dashboard/app.py
-```
+- **Team Member**
+  - Review assigned tasks, update progress and status, submit remarks.
+  - Workload view highlights total man-days and deadlines.
 
-The dashboard provides three role-based views:
+- **Project Manager**
+  - Create and edit projects, manage task backlogs, assign team members.
+  - Monitor project pipelines and task progress in real time.
 
-- **Team Member:** Focuses on personal workload, progress updates, and weekly notes.
-- **Project Manager:** Provides CRUD helpers for projects/tasks and burndown style charts.
-- **Company Manager:** Surfaces portfolio-level metrics, budget utilisation, and delivery
-  health.
+- **Company Manager**
+  - Portfolio dashboard summarizing project status, resource utilization, and completion KPIs.
+  - Visual charts support planning and performance conversations.
 
-## Testing and linting
+## API Overview
 
-Run automated tests (including API, schema, and reporting coverage):
+| Endpoint           | Method | Description                      |
+|-------------------|--------|----------------------------------|
+| `/health`          | GET    | Service readiness check          |
+| `/projects`        | CRUD   | Manage projects                  |
+| `/projects/{id}`   | CRUD   | Single project operations        |
+| `/tasks`           | CRUD   | Manage tasks                     |
+| `/tasks/{id}`      | CRUD   | Single task operations           |
+| `/tasks/assignees/list` | GET | Distinct list of task assignees |
+| `/metrics/portfolio` | GET | Portfolio-level KPIs             |
+| `/metrics/team`    | GET    | Resource utilization by assignee |
+
+All endpoints return JSON responses. See the automatically generated OpenAPI docs at `/docs` for request/response schemas.
+
+## Docker Workflow
+
+1. **Build and start**
+   ```bash
+   docker compose up --build
+   ```
+
+2. **Seed demo data inside the backend container**
+   ```bash
+   docker compose exec backend python -m backend.seed
+   ```
+
+3. **Access**
+   - API: http://localhost:8000
+   - Dashboard: http://localhost:8501
+
+The compose file provisions three services:
+
+- `db`: PostgreSQL database with persistent volume `db-data`.
+- `backend`: FastAPI application served by Uvicorn.
+- `dashboard`: Streamlit frontend connected to the API.
+
+## Testing
+
+Basic smoke tests live under `tests/`. Run them with:
 
 ```bash
 pytest
 ```
 
-### Prototype smoke tests
+## Project Layout
 
-The prototype ships with end-to-end API tests in `tests/test_api_endpoints.py` that spin up
-an in-memory SQLite database and exercise the CRUD and reporting flows exposed by the
-FastAPI service. Run them directly whenever you make changes to the backend models or
-service wiring:
-
-```bash
-pytest tests/test_api_endpoints.py
+```
+backend/
+  config.py        # App configuration via pydantic-settings
+  crud.py          # Database operations
+  data/            # Sample JSON dataset for seeding
+  main.py          # FastAPI application entry point
+  models.py        # SQLAlchemy ORM models
+  routers/         # Route modules for projects, tasks, metrics
+  schemas.py       # Pydantic schemas for request/response
+  seed.py          # Demo data loader
+dashboard/
+  app.py           # Streamlit dashboard with role-based tabs
+tests/
+  test_health.py   # Example API test
 ```
 
-Optional linting with Ruff:
+## Next Steps
 
-```bash
-ruff check .
-```
-
-## Containerised environment
-
-The repository ships with a Dockerfile and Compose setup that runs PostgreSQL, the FastAPI
-backend, and the Streamlit dashboard together:
-
-```bash
-docker compose up --build
-```
-
-Services exposed locally:
-
-- Backend API: <http://localhost:8000>
-- Streamlit dashboard: <http://localhost:8501>
-- PostgreSQL database: exposed on port `5432` for local tooling (username/password `tracker`).
-
-Shut down the stack with `docker compose down`. Persisted database data lives in the
-`pgdata` volume.
-
-## Continuous integration
-
-GitHub Actions run the workflow defined in `.github/workflows/ci.yml` on pushes and pull
-requests. The pipeline installs the project in a clean environment, executes `ruff check .`,
-and runs the full `pytest` suite to guard regressions.
-
-## Contributing
-
-Contributions are welcome! Please open an issue describing the improvement you would like
-to make before submitting a pull request so we can coordinate efforts. When sending a PR,
-include a short summary of the change and any relevant screenshots or logs.
-
-## License
-
-This prototype is distributed under the MIT License. See the [LICENSE](LICENSE) file for
-full details once it is added to the repository.
+- Add authentication & authorization for production use.
+- Expand automated test coverage for CRUD and dashboard interactions.
+- Integrate background jobs (e.g., nightly summary emails) as future enhancements.

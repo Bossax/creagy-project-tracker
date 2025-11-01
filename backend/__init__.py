@@ -1,4 +1,5 @@
-"""Backend package for the Creagy project tracker."""
-"""Backend package initialization."""
+"""
+Creagy Project Tracker backend package exports.
+"""
 
-__all__ = []
+from .config import settings  # noqa: F401

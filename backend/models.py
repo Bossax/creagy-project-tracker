@@ -1,46 +1,71 @@
-"""SQLAlchemy ORM models for the Creagy project tracker."""
-from __future__ import annotations
+import enum
+from datetime import date
+from decimal import Decimal
 
-from sqlalchemy import Column, Date, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import relationship
+from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from .database import Base
+
+class Base(DeclarativeBase):
+    """Base class for SQLAlchemy models."""
+
+
+class ProjectStatus(str, enum.Enum):
+    PLANNED = "planned"
+    ACTIVE = "active"
+    ON_HOLD = "on_hold"
+    COMPLETED = "completed"
+
+
+class TaskStatus(str, enum.Enum):
+    NOT_STARTED = "not_started"
+    IN_PROGRESS = "in_progress"
+    AT_RISK = "at_risk"
+    BLOCKED = "blocked"
+    COMPLETE = "complete"
 
 
 class Project(Base):
-    """Represents a tracked project."""
+    """Project entity with planning metadata."""
 
     __tablename__ = "projects"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    owner = Column(String(255), nullable=True)
-    status = Column(String(50), nullable=True)
-    start_date = Column(Date, nullable=True)
-    end_date = Column(Date, nullable=True)
-    notes = Column(Text, nullable=True)
-    budget_allocated = Column(Float, nullable=True)
-    budget_spent = Column(Float, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    client: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_manager: Mapped[str] = mapped_column(String(255), nullable=False)
+    budget: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=True)
+    status: Mapped[ProjectStatus] = mapped_column(
+        Enum(ProjectStatus, name="project_status"),
+        default=ProjectStatus.PLANNED,
+    )
 
-    tasks = relationship(
-        "Task",
+    tasks: Mapped[list["Task"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan",
-        passive_deletes=True,
+        lazy="selectin",
     )
 
 
 class Task(Base):
-    """Represents an individual task associated with a project."""
+    """Task entity with workload and progress tracking."""
 
     __tablename__ = "tasks"
 
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    name = Column(String(255), nullable=False)
-    owner = Column(String(255), nullable=True)
-    status = Column(String(50), nullable=True)
-    due_date = Column(Date, nullable=True)
-    notes = Column(Text, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    assignee: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    man_days: Mapped[float] = mapped_column(Float, nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=True)
+    status: Mapped[TaskStatus] = mapped_column(
+        Enum(TaskStatus, name="task_status"),
+        default=TaskStatus.NOT_STARTED,
+    )
+    progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    project = relationship("Project", back_populates="tasks")
+    project: Mapped[Project] = relationship(back_populates="tasks")

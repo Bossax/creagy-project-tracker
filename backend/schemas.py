@@ -1,182 +1,116 @@
-"""Pydantic schemas for the Creagy project tracker API."""
-from __future__ import annotations
-
-from datetime import date, datetime
+from datetime import date
+from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field, condecimal, field_validator
+
+from .models import ProjectStatus, TaskStatus
 
 
 class ProjectBase(BaseModel):
-    """Shared attributes for project operations."""
-
-    name: Optional[str] = Field(None, max_length=255)
-    owner: Optional[str] = Field(None, max_length=255)
-    status: Optional[str] = Field(None, max_length=50)
-    start_date: Optional[date] = None
+    name: str = Field(..., max_length=255)
+    client: str = Field(..., max_length=255)
+    project_manager: str = Field(..., max_length=255)
+    budget: condecimal(max_digits=12, decimal_places=2)
+    start_date: date
     end_date: Optional[date] = None
-    notes: Optional[str] = None
-    budget_allocated: Optional[float] = Field(None, ge=0)
-    budget_spent: Optional[float] = Field(None, ge=0)
+    status: ProjectStatus = ProjectStatus.PLANNED
 
 
 class ProjectCreate(ProjectBase):
-    """Schema for creating a new project."""
-
-    name: str = Field(..., max_length=255)
-
-
-class ProjectUpdate(ProjectBase):
-    """Schema for updating an existing project."""
-
     pass
 
 
-class TaskBase(BaseModel):
-    """Shared attributes for task operations."""
-
+class ProjectUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=255)
-    owner: Optional[str] = Field(None, max_length=255)
-    status: Optional[str] = Field(None, max_length=50)
-    due_date: Optional[date] = None
-    notes: Optional[str] = None
+    client: Optional[str] = Field(None, max_length=255)
+    project_manager: Optional[str] = Field(None, max_length=255)
+    budget: Optional[condecimal(max_digits=12, decimal_places=2)] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    status: Optional[ProjectStatus] = None
+
+
+class TaskBase(BaseModel):
+    project_id: int
+    name: str = Field(..., max_length=255)
+    assignee: str = Field(..., max_length=255)
+    man_days: float = Field(..., ge=0)
+    start_date: date
+    end_date: Optional[date] = None
+    status: TaskStatus = TaskStatus.NOT_STARTED
+    progress: float = Field(0.0, ge=0.0, le=1.0)
+    remarks: Optional[str] = None
+
+    @field_validator("progress")
+    @classmethod
+    def clamp_progress(cls, value: float) -> float:
+        return max(0.0, min(1.0, value))
 
 
 class TaskCreate(TaskBase):
-    """Schema for creating a new task."""
-
-    name: str = Field(..., max_length=255)
-    project_id: int
+    pass
 
 
-class TaskUpdate(TaskBase):
-    """Schema for updating an existing task."""
+class TaskUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=255)
+    assignee: Optional[str] = Field(None, max_length=255)
+    man_days: Optional[float] = Field(None, ge=0)
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    status: Optional[TaskStatus] = None
+    progress: Optional[float] = Field(None, ge=0.0, le=1.0)
+    remarks: Optional[str] = None
 
-    project_id: Optional[int] = None
+    @field_validator("progress")
+    @classmethod
+    def clamp_progress(cls, value: float | None) -> float | None:
+        if value is None:
+            return value
+        return max(0.0, min(1.0, value))
 
 
-class Task(TaskBase):
-    """Schema for reading task information from the database."""
-
+class TaskRead(BaseModel):
     id: int
     project_id: int
-    name: str = Field(..., max_length=255)
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class Project(ProjectBase):
-    """Schema for reading project information along with its tasks."""
-
-    id: int
-    name: str = Field(..., max_length=255)
-    tasks: list[Task] = Field(default_factory=list)
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ProjectBudget(BaseModel):
-    """Summary of project budget utilisation."""
-
-    allocated: float = Field(0.0, ge=0)
-    spent: float = Field(0.0, ge=0)
-    remaining: float = Field(0.0)
-
-
-class ProjectReportTask(BaseModel):
-    """Minimal task details surfaced in weekly reports."""
-
-    id: Optional[int] = None
     name: str
-    owner: Optional[str] = None
-    status: Optional[str] = None
-    due_date: Optional[date] = None
+    assignee: str
+    man_days: float
+    start_date: date
+    end_date: Optional[date]
+    status: TaskStatus
+    progress: float
+    remarks: Optional[str]
+
+    model_config = {"from_attributes": True}
 
 
-class ProjectWeeklyReport(BaseModel):
-    """Structured payload returned when generating weekly reports."""
+class ProjectRead(BaseModel):
+    id: int
+    name: str
+    client: str
+    project_manager: str
+    budget: Decimal
+    start_date: date
+    end_date: Optional[date]
+    status: ProjectStatus
+    tasks: list[TaskRead] = []
 
-    project_id: int
-    project_name: str
-    generated_at: datetime
-    status_breakdown: dict[str, int]
-    completion_percentage: float = Field(ge=0, le=100)
-    budget: ProjectBudget
-    upcoming_tasks: list[ProjectReportTask] = Field(default_factory=list)
-    notes: Optional[str] = None
-
-
-class PortfolioBudgetSummary(BaseModel):
-    """Aggregate budget information across the project portfolio."""
-
-    allocated: float = Field(0.0, ge=0)
-    spent: float = Field(0.0, ge=0)
-    remaining: float = Field(0.0)
-    utilisation: float = Field(0.0, ge=0, le=100)
+    model_config = {"from_attributes": True}
 
 
-class ProjectHealthBreakdown(BaseModel):
-    """Number of projects in a given health/status category."""
-
-    status: str
-    projects: int = Field(0, ge=0)
-
-
-class TaskStatusBreakdown(BaseModel):
-    """Distribution of tasks by workflow status."""
-
-    status: str
-    tasks: int = Field(0, ge=0)
+class PortfolioSummary(BaseModel):
+    total_projects: int
+    active_projects: int
+    completed_projects: int
+    total_man_days: float
+    overall_completion_rate: float
+    budget_utilization: float
 
 
-class ProjectProgressSummary(BaseModel):
-    """Completion details for a single project within the portfolio."""
-
-    project_id: int
-    project_name: str
-    status: str
-    completion_percentage: float = Field(0.0, ge=0, le=100)
-    total_tasks: int = Field(0, ge=0)
-    completed_tasks: int = Field(0, ge=0)
-
-
-class ManDayAllocation(BaseModel):
-    """Total man-day allocation captured across project tasks."""
-
-    project_id: int
-    project_name: str
-    man_days: float = Field(0.0, ge=0)
-
-
-class PortfolioReport(BaseModel):
-    """Leadership-level overview of the entire delivery portfolio."""
-
-    project_count: int = Field(0, ge=0)
-    active_projects: int = Field(0, ge=0)
-    total_tasks: int = Field(0, ge=0)
-    budget: PortfolioBudgetSummary = Field(default_factory=PortfolioBudgetSummary)
-    project_health: list[ProjectHealthBreakdown] = Field(default_factory=list)
-    task_status: list[TaskStatusBreakdown] = Field(default_factory=list)
-    project_progress: list[ProjectProgressSummary] = Field(default_factory=list)
-    man_day_allocation: list[ManDayAllocation] = Field(default_factory=list)
-
-
-__all__ = [
-    "ProjectBase",
-    "ProjectCreate",
-    "ProjectUpdate",
-    "Project",
-    "TaskBase",
-    "TaskCreate",
-    "TaskUpdate",
-    "Task",
-    "ProjectBudget",
-    "ProjectReportTask",
-    "ProjectWeeklyReport",
-    "PortfolioBudgetSummary",
-    "ProjectHealthBreakdown",
-    "TaskStatusBreakdown",
-    "ProjectProgressSummary",
-    "ManDayAllocation",
-    "PortfolioReport",
-]
+class UtilizationBreakdown(BaseModel):
+    assignee: str
+    man_days: float
+    tasks: int
+    in_progress: int
+    completed: int

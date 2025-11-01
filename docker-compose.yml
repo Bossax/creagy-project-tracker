@@ -1,40 +1,47 @@
+version: "3.9"
+
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres:16
+    container_name: creagy_db
     environment:
-      POSTGRES_DB: tracker
-      POSTGRES_USER: tracker
-      POSTGRES_PASSWORD: tracker
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+      POSTGRES_DB: creagy
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d creagy"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - db-data:/var/lib/postgresql/data
 
   backend:
-    build: .
-    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
     environment:
-      DATABASE_URL: postgresql+psycopg://tracker:tracker@db:5432/tracker
-      POSTGRES_HOST: db
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: tracker
-      POSTGRES_PASSWORD: tracker
-      POSTGRES_DB: tracker
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/creagy
+      CORS_ORIGINS: http://localhost:8501,http://dashboard:8501
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "8000:8000"
 
   dashboard:
-    build: .
-    command: streamlit run dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
     environment:
       API_BASE_URL: http://backend:8000
-      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
     depends_on:
-      - backend
+      backend:
+        condition: service_started
     ports:
       - "8501:8501"
 
 volumes:
-  pgdata:
+  db-data:

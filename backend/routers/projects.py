@@ -1,115 +1,86 @@
-"""API routes for project resources."""
 from __future__ import annotations
 
-from collections import Counter
-from datetime import date, datetime
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
-from .. import crud, schemas
-from ..database import get_session
+from .. import crud, models, schemas
+from ..database import get_db
 
-router = APIRouter(prefix="/projects", tags=["Projects"])
+router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-@router.get("/", response_model=list[schemas.Project])
-def list_projects(db: Session = Depends(get_session)) -> list[schemas.Project]:
-    """Return all projects."""
-
-    projects = crud.get_projects(db)
+@router.get("/", response_model=list[schemas.ProjectRead])
+def read_projects(
+    status_filter: models.ProjectStatus | None = Query(None, alias="status"),
+    db: Session = Depends(get_db),
+) -> list[schemas.ProjectRead]:
+    projects = crud.list_projects(db)
+    if status_filter:
+        projects = [project for project in projects if project.status == status_filter]
     return list(projects)
 
 
-@router.post("/", response_model=schemas.Project, status_code=status.HTTP_201_CREATED)
-def create_project(project_in: schemas.ProjectCreate, db: Session = Depends(get_session)) -> schemas.Project:
-    """Create a new project."""
-
-    project = crud.create_project(db, project_in)
+@router.get("/{project_id}", response_model=schemas.ProjectRead)
+def read_project(project_id: int, db: Session = Depends(get_db)) -> schemas.ProjectRead:
+    try:
+        project = crud.get_project(db, project_id)
+    except NoResultFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return project
 
 
-@router.get("/{project_id}", response_model=schemas.Project)
-def get_project(project_id: int, db: Session = Depends(get_session)) -> schemas.Project:
-    """Retrieve a single project by its identifier."""
-
-    project = crud.get_project(db, project_id)
-    if project is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    return project
+@router.post("/", response_model=schemas.ProjectRead, status_code=status.HTTP_201_CREATED)
+def create_project(payload: schemas.ProjectCreate, db: Session = Depends(get_db)) -> schemas.ProjectRead:
+    return crud.create_project(db, payload)
 
 
-@router.put("/{project_id}", response_model=schemas.Project)
+@router.put("/{project_id}", response_model=schemas.ProjectRead)
 def update_project(
     project_id: int,
-    project_in: schemas.ProjectUpdate,
-    db: Session = Depends(get_session),
-) -> schemas.Project:
-    """Update an existing project."""
-
-    project = crud.get_project(db, project_id)
-    if project is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    updated_project = crud.update_project(db, project, project_in)
-    return updated_project
+    payload: schemas.ProjectUpdate,
+    db: Session = Depends(get_db),
+) -> schemas.ProjectRead:
+    try:
+        project = crud.get_project(db, project_id)
+    except NoResultFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return crud.update_project(db, project, payload)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_project(project_id: int, db: Session = Depends(get_session)) -> None:
-    """Delete a project by its identifier."""
-
-    project = crud.get_project(db, project_id)
-    if project is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+def remove_project(project_id: int, db: Session = Depends(get_db)) -> None:
+    try:
+        project = crud.get_project(db, project_id)
+    except NoResultFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     crud.delete_project(db, project)
 
 
-@router.get("/{project_id}/weekly-report", response_model=schemas.ProjectWeeklyReport)
-def generate_weekly_report(
-    project_id: int, db: Session = Depends(get_session)
-) -> schemas.ProjectWeeklyReport:
-    """Return a structured weekly report for the requested project."""
+@router.get("/{project_id}/summary")
+def project_summary(project_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    try:
+        project = crud.get_project(db, project_id)
+    except NoResultFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    project = crud.get_project(db, project_id)
-    if project is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-
-    tasks = list(project.tasks)
-    status_counts = Counter(task.status or "Unknown" for task in tasks)
-    total_tasks = len(tasks)
-    completion_percentage = 0.0
-    if total_tasks:
-        completion_percentage = (
-            status_counts.get("Completed", 0) / total_tasks
-        ) * 100
-
-    today = date.today()
-    upcoming_tasks = [
-        schemas.ProjectReportTask(
-            id=task.id,
-            name=task.name,
-            owner=task.owner,
-            status=task.status,
-            due_date=task.due_date,
-        )
-        for task in tasks
-        if task.due_date and task.due_date >= today
-    ]
-    upcoming_tasks.sort(key=lambda task: task.due_date or today)
-    upcoming_tasks = upcoming_tasks[:5]
-
-    allocated = float(project.budget_allocated or 0.0)
-    spent = float(project.budget_spent or 0.0)
-    remaining = max(allocated - spent, 0.0)
-
-    report = schemas.ProjectWeeklyReport(
-        project_id=project.id,
-        project_name=project.name,
-        generated_at=datetime.utcnow(),
-        status_breakdown=dict(status_counts),
-        completion_percentage=round(completion_percentage, 2),
-        budget=schemas.ProjectBudget(allocated=allocated, spent=spent, remaining=remaining),
-        upcoming_tasks=upcoming_tasks,
-        notes=project.notes,
+    total_tasks = len(project.tasks)
+    completed = sum(1 for task in project.tasks if task.status == models.TaskStatus.COMPLETE)
+    in_progress = sum(1 for task in project.tasks if task.status == models.TaskStatus.IN_PROGRESS)
+    total_man_days = sum(task.man_days for task in project.tasks)
+    average_progress = (
+        sum(task.progress for task in project.tasks) / total_tasks if total_tasks else 0.0
     )
-    return report
+
+    return {
+        "project_id": project.id,
+        "name": project.name,
+        "status": project.status,
+        "total_tasks": total_tasks,
+        "completed_tasks": completed,
+        "in_progress_tasks": in_progress,
+        "total_man_days": total_man_days,
+        "average_progress": round(average_progress, 4),
+    }

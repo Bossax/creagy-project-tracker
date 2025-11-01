@@ -1,35 +1,27 @@
-"""Application configuration utilities."""
-
-from __future__ import annotations
-
-from dataclasses import dataclass
-from functools import lru_cache
-import os
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-@dataclass
-class Settings:
-    """Settings loaded from environment variables for database configuration."""
+class Settings(BaseSettings):
+    """Application configuration loaded from environment variables."""
 
-    postgres_host: str = os.environ.get("POSTGRES_HOST", "localhost")
-    postgres_port: int = int(os.environ.get("POSTGRES_PORT", "5432"))
-    postgres_user: str = os.environ.get("POSTGRES_USER", "postgres")
-    postgres_password: str = os.environ.get("POSTGRES_PASSWORD", "postgres")
-    postgres_db: str = os.environ.get("POSTGRES_DB", "postgres")
+    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/creagy"
+    app_name: str = "Creagy Project Tracker API"
+    api_prefix: str = "/"
+    cors_origins: list[str] = ["http://localhost:8501"]
 
-    @property
-    def database_url(self) -> str:
-        """Construct a SQLAlchemy-compatible database URL."""
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
-        return (
-            "postgresql+psycopg://"
-            f"{self.postgres_user}:{self.postgres_password}"
-            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
-        )
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: str | list[str]) -> list[str]:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
 
 
-@lru_cache
-def get_settings() -> Settings:
-    """Return cached application settings."""
-
-    return Settings()
+settings = Settings()

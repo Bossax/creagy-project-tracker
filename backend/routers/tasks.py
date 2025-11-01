@@ -1,66 +1,65 @@
-"""API routes for task resources."""
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
-from .. import crud, schemas
-from ..database import get_session
+from .. import crud, models, schemas
+from ..database import get_db
 
-router = APIRouter(prefix="/tasks", tags=["Tasks"])
+router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
-@router.get("/", response_model=list[schemas.Task])
-def list_tasks(
-    project_id: Optional[int] = Query(default=None, description="Filter tasks by project"),
-    db: Session = Depends(get_session),
-) -> list[schemas.Task]:
-    """Return all tasks, optionally filtered by project."""
-
-    tasks = crud.get_tasks(db, project_id=project_id)
+@router.get("/", response_model=list[schemas.TaskRead])
+def read_tasks(
+    assignee: str | None = Query(None),
+    project_id: int | None = Query(None),
+    status_filter: models.TaskStatus | None = Query(None, alias="status"),
+    db: Session = Depends(get_db),
+) -> list[schemas.TaskRead]:
+    tasks = crud.list_tasks(db, assignee=assignee, project_id=project_id)
+    if status_filter:
+        tasks = [task for task in tasks if task.status == status_filter]
     return list(tasks)
 
 
-@router.post("/", response_model=schemas.Task, status_code=status.HTTP_201_CREATED)
-def create_task(task_in: schemas.TaskCreate, db: Session = Depends(get_session)) -> schemas.Task:
-    """Create a new task."""
-
-    task = crud.create_task(db, task_in)
+@router.get("/{task_id}", response_model=schemas.TaskRead)
+def read_task(task_id: int, db: Session = Depends(get_db)) -> schemas.TaskRead:
+    try:
+        task = crud.get_task(db, task_id)
+    except NoResultFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return task
 
 
-@router.get("/{task_id}", response_model=schemas.Task)
-def get_task(task_id: int, db: Session = Depends(get_session)) -> schemas.Task:
-    """Retrieve a single task by its identifier."""
+@router.post("/", response_model=schemas.TaskRead, status_code=status.HTTP_201_CREATED)
+def create_task(payload: schemas.TaskCreate, db: Session = Depends(get_db)) -> schemas.TaskRead:
+    try:
+        crud.ensure_projects_exist(db, [payload.project_id])
+    except NoResultFound as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return crud.create_task(db, payload)
 
-    task = crud.get_task(db, task_id)
-    if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    return task
 
-
-@router.put("/{task_id}", response_model=schemas.Task)
-def update_task(
-    task_id: int,
-    task_in: schemas.TaskUpdate,
-    db: Session = Depends(get_session),
-) -> schemas.Task:
-    """Update an existing task."""
-
-    task = crud.get_task(db, task_id)
-    if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    updated_task = crud.update_task(db, task, task_in)
-    return updated_task
+@router.patch("/{task_id}", response_model=schemas.TaskRead)
+def update_task(task_id: int, payload: schemas.TaskUpdate, db: Session = Depends(get_db)) -> schemas.TaskRead:
+    try:
+        task = crud.get_task(db, task_id)
+    except NoResultFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return crud.update_task(db, task, payload)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_task(task_id: int, db: Session = Depends(get_session)) -> None:
-    """Delete a task by its identifier."""
-
-    task = crud.get_task(db, task_id)
-    if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+def remove_task(task_id: int, db: Session = Depends(get_db)) -> None:
+    try:
+        task = crud.get_task(db, task_id)
+    except NoResultFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     crud.delete_task(db, task)
+
+
+@router.get("/assignees/list", response_model=list[str])
+def list_assignees(db: Session = Depends(get_db)) -> list[str]:
+    assignees = {task.assignee for task in crud.list_tasks(db)}
+    return sorted(assignees)

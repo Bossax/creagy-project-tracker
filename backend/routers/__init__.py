@@ -1,7 +1,1 @@
-"""FastAPI route modules for the Creagy project tracker API."""
-
-__all__ = [
-    "projects",
-    "tasks",
-    "reports",
-]
+"""API router modules for the Creagy Project Tracker backend."""

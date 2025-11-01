@@ -1,26 +1,32 @@
-"""FastAPI application entrypoint."""
-
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from .config import get_settings
-from .routers import projects, reports, tasks
+from .config import settings
+from .database import engine
+from .models import Base
+from .routers import metrics, projects, tasks
 
-app = FastAPI(title="Creagy Project Tracker")
+app = FastAPI(title=settings.app_name)
 
-app.include_router(projects.router)
-app.include_router(tasks.router)
-app.include_router(reports.router)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.on_event("startup")
-def startup_event() -> None:
-    """Load settings on startup to ensure configuration is valid."""
-
-    get_settings()
+def ensure_database_schema() -> None:
+    Base.metadata.create_all(bind=engine)
 
 
-@app.get("/health", tags=["Health"])
+@app.get("/health")
 def health_check() -> dict[str, str]:
-    """Health check endpoint to confirm service availability."""
-
     return {"status": "ok"}
+
+
+app.include_router(projects.router, prefix=settings.api_prefix)
+app.include_router(tasks.router, prefix=settings.api_prefix)
+app.include_router(metrics.router, prefix=settings.api_prefix)
