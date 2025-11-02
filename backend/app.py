@@ -1,42 +1,65 @@
 from __future__ import annotations
 
-import json
 import os
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from flask import (
     Flask,
-    flash,
+    Response,
     g,
-    redirect,
-    render_template,
+    jsonify,
     request,
+    send_from_directory,
     session,
-    url_for,
 )
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from .database import SessionLocal, Base, engine
+from .database import Base, SessionLocal, engine
 from .models import Activity, Client, Employee, Month, Project, Task, TaskActivity, Team
 from .seed import seed
 
 
 def create_app() -> Flask:
-    app = Flask(__name__, template_folder="../templates", static_folder="../static")
+    frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    static_folder = str(frontend_dist) if frontend_dist.exists() else None
+
+    app = Flask(__name__, static_folder=static_folder, static_url_path="/")
     app.secret_key = os.getenv("SECRET_KEY", "creagy-dev-secret")
 
-    # Ensure database exists
     Base.metadata.create_all(engine)
     seed()
 
     @app.before_request
-    def before_request() -> None:
+    def before_request() -> Response | None:
+        if request.method == "OPTIONS":
+            response = app.make_default_options_response()
+            response.status_code = 204
+            return response
         g.db = SessionLocal()
+        return None
+
+    @app.after_request
+    def apply_cors(response: Response) -> Response:
+        allowed_origins = {
+            origin.strip()
+            for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+            if origin.strip()
+        }
+        origin = request.headers.get("Origin")
+        if origin and (not allowed_origins or origin in allowed_origins):
+            response.headers["Access-Control-Allow-Origin"] = origin
+        elif not origin:
+            response.headers["Access-Control-Allow-Origin"] = request.host_url.rstrip("/")
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
+        return response
 
     @app.teardown_request
     def teardown_request(exception: Exception | None) -> None:
@@ -53,51 +76,68 @@ def create_app() -> Flask:
             return None
         return g.db.get(Employee, employee_id)
 
-    def require_login() -> Employee:
+    def require_user() -> Employee:
         user = current_user()
         if not user:
-            flash("Please choose your employee profile to continue.", "warning")
-            raise Redirect(url_for("index"))
+            raise Unauthorized("Authentication required.")
         return user
 
-    class Redirect(Exception):
-        def __init__(self, location: str) -> None:
-            self.location = location
+    class Unauthorized(Exception):
+        def __init__(self, message: str) -> None:
+            self.message = message
 
-    @app.errorhandler(Redirect)
-    def handle_redirect(error: Redirect):  # type: ignore[override]
-        return redirect(error.location)
+    class BadRequest(Exception):
+        def __init__(self, message: str) -> None:
+            self.message = message
 
-    @app.route("/", methods=["GET"])
-    def index():
-        employees = g.db.scalars(select(Employee).order_by(Employee.name)).all()
-        teams = g.db.scalars(select(Team).order_by(Team.name)).all()
-        return render_template("index.html", employees=employees, teams=teams, user=current_user())
+    @app.errorhandler(Unauthorized)
+    def handle_unauthorized(error: Unauthorized):  # type: ignore[override]
+        return jsonify({"error": error.message}), 401
 
-    @app.route("/login", methods=["POST"])
-    def login():
-        employee_id = request.form.get("employee_id")
+    @app.errorhandler(BadRequest)
+    def handle_bad_request(error: BadRequest):  # type: ignore[override]
+        return jsonify({"error": error.message}), 400
+
+    @app.route("/api/ping", methods=["GET"])
+    def ping():
+        return jsonify({"status": "ok"})
+
+    @app.route("/api/session", methods=["GET"])
+    def get_session():
+        user = current_user()
+        if not user:
+            return jsonify({"user": None})
+        return jsonify({"user": serialize_employee(user)})
+
+    @app.route("/api/session", methods=["POST"])
+    def create_session():
+        payload = request.get_json(force=True, silent=True) or {}
+        employee_id = payload.get("employeeId")
         if not employee_id:
-            flash("Please select an employee.", "danger")
-            return redirect(url_for("index"))
-
+            raise BadRequest("employeeId is required.")
         employee = g.db.get(Employee, int(employee_id))
         if not employee:
-            flash("Employee not found.", "danger")
-            return redirect(url_for("index"))
-
+            raise BadRequest("Employee not found.")
         session["employee_id"] = employee.id
-        flash(f"Welcome back, {employee.name}!", "success")
-        return redirect(url_for("dashboard"))
+        return jsonify({"user": serialize_employee(employee)})
 
-    @app.route("/employees", methods=["POST"])
+    @app.route("/api/session", methods=["DELETE"])
+    def delete_session():
+        session.clear()
+        return jsonify({"success": True})
+
+    @app.route("/api/employees", methods=["GET"])
+    def list_employees():
+        employees = g.db.scalars(select(Employee).order_by(Employee.name)).all()
+        return jsonify({"employees": [serialize_employee(emp) for emp in employees]})
+
+    @app.route("/api/employees", methods=["POST"])
     def create_employee():
-        name = request.form.get("name", "").strip()
-        team_id = request.form.get("team_id")
+        payload = request.get_json(force=True, silent=True) or {}
+        name = (payload.get("name") or "").strip()
+        team_id = payload.get("teamId")
         if not name:
-            flash("Employee name is required.", "danger")
-            return redirect(url_for("index"))
-
+            raise BadRequest("Employee name is required.")
         team = g.db.get(Team, int(team_id)) if team_id else None
         try:
             employee = Employee(name=name, team=team)
@@ -106,310 +146,328 @@ def create_app() -> Flask:
         except IntegrityError:
             g.db.rollback()
             employee = g.db.scalar(select(Employee).where(Employee.name == name))
-
+            if not employee:
+                raise BadRequest("Unable to create employee.")
         session["employee_id"] = employee.id
-        flash(f"Welcome, {employee.name}! Your profile has been created.", "success")
-        return redirect(url_for("dashboard"))
+        return jsonify({"user": serialize_employee(employee)})
 
-    @app.route("/logout")
-    def logout():
-        session.clear()
-        flash("You have been logged out.", "info")
-        return redirect(url_for("index"))
+    @app.route("/api/teams", methods=["GET"])
+    def list_teams():
+        teams = g.db.scalars(select(Team).order_by(Team.name)).all()
+        return jsonify({"teams": [serialize_team(team) for team in teams]})
 
-    @app.route("/dashboard")
-    def dashboard():
-        try:
-            user = require_login()
-        except Redirect as redirect_exc:
-            return redirect(redirect_exc.location)
+    @app.route("/api/clients", methods=["GET"])
+    def list_clients():
+        clients = g.db.scalars(select(Client).order_by(Client.name)).all()
+        return jsonify({"clients": [serialize_client(client) for client in clients]})
 
+    @app.route("/api/activities", methods=["GET"])
+    def list_activities():
+        activities = g.db.scalars(select(Activity).order_by(Activity.type)).all()
+        return jsonify({"activities": [serialize_activity(activity) for activity in activities]})
+
+    @app.route("/api/months", methods=["GET"])
+    def list_months():
+        months = g.db.scalars(select(Month).order_by(Month.yyyy_mm)).all()
+        return jsonify({"months": [serialize_month(month) for month in months]})
+
+    @app.route("/api/projects", methods=["GET"])
+    def list_projects():
+        user = current_user()
         projects = (
             g.db.execute(
                 select(Project)
-                .options(selectinload(Project.project_manager), selectinload(Project.client))
+                .options(
+                    selectinload(Project.project_manager),
+                    selectinload(Project.client),
+                    selectinload(Project.team),
+                    selectinload(Project.created_by),
+                )
                 .order_by(Project.start_date)
             )
             .scalars()
             .all()
         )
-        return render_template("dashboard.html", user=user, projects=projects)
-
-    @app.route("/projects/new", methods=["GET", "POST"])
-    def new_project():
-        try:
-            user = require_login()
-        except Redirect as redirect_exc:
-            return redirect(redirect_exc.location)
-
-        employees = g.db.scalars(select(Employee).order_by(Employee.name)).all()
-        clients = g.db.scalars(select(Client).order_by(Client.name)).all()
-        teams = g.db.scalars(select(Team).order_by(Team.name)).all()
-
-        if request.method == "POST":
-            name = request.form.get("name", "").strip()
-            project_manager_id = request.form.get("project_manager_id")
-            client_id = request.form.get("client_id")
-            new_client_name = request.form.get("new_client_name", "").strip()
-            team_id = request.form.get("team_id")
-            budget = request.form.get("budget", "0")
-            start_date_str = request.form.get("start_date")
-            end_date_str = request.form.get("end_date")
-
-            if not name or not project_manager_id or not team_id or not start_date_str or not end_date_str:
-                flash("Please complete all required fields.", "danger")
-                return render_template(
-                    "new_project.html",
-                    user=user,
-                    employees=employees,
-                    clients=clients,
-                    teams=teams,
-                )
-
-            project_manager = g.db.get(Employee, int(project_manager_id))
-            if not project_manager:
-                flash("Selected project manager not found.", "danger")
-                return render_template(
-                    "new_project.html",
-                    user=user,
-                    employees=employees,
-                    clients=clients,
-                    teams=teams,
-                )
-
-            client = None
-            if client_id:
-                client = g.db.get(Client, int(client_id))
-            if not client and new_client_name:
-                client = Client(name=new_client_name)
-                g.db.add(client)
-                g.db.flush()
-
-            if not client:
-                flash("Please select an existing client or enter a new client name.", "danger")
-                return render_template(
-                    "new_project.html",
-                    user=user,
-                    employees=employees,
-                    clients=clients,
-                    teams=teams,
-                )
-
-            try:
-                parsed_budget = Decimal(budget)
-            except Exception:
-                flash("Budget must be a number.", "danger")
-                return render_template(
-                    "new_project.html",
-                    user=user,
-                    employees=employees,
-                    clients=clients,
-                    teams=teams,
-                )
-
-            try:
-                start_date_value = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-                end_date_value = datetime.strptime(end_date_str, "%Y-%m-%d").date()
-            except ValueError:
-                flash("Dates must be in YYYY-MM-DD format.", "danger")
-                return render_template(
-                    "new_project.html",
-                    user=user,
-                    employees=employees,
-                    clients=clients,
-                    teams=teams,
-                )
-
-            if end_date_value < start_date_value:
-                flash("End date must be on or after start date.", "danger")
-                return render_template(
-                    "new_project.html",
-                    user=user,
-                    employees=employees,
-                    clients=clients,
-                    teams=teams,
-                )
-
-            project = Project(
-                name=name,
-                project_manager=project_manager,
-                client=client,
-                team=g.db.get(Team, int(team_id)),
-                budget=parsed_budget,
-                start_date=start_date_value,
-                end_date=end_date_value,
-                created_by=user,
-            )
-            g.db.add(project)
-            try:
-                g.db.commit()
-                flash("Project created successfully.", "success")
-                return redirect(url_for("project_detail", project_id=project.id))
-            except IntegrityError:
-                g.db.rollback()
-                flash("A project with that name already exists.", "danger")
-
-        return render_template(
-            "new_project.html",
-            user=user,
-            employees=employees,
-            clients=clients,
-            teams=teams,
+        return jsonify(
+            {
+                "projects": [
+                    serialize_project_summary(project, user_id=user.id if user else None)
+                    for project in projects
+                ]
+            }
         )
 
-    @app.route("/projects/<int:project_id>")
-    def project_detail(project_id: int):
+    @app.route("/api/projects", methods=["POST"])
+    def create_project():
+        user = require_user()
+        payload = request.get_json(force=True, silent=True) or {}
+        name = (payload.get("name") or "").strip()
+        manager_id = payload.get("projectManagerId")
+        client_id = payload.get("clientId")
+        client_name = (payload.get("clientName") or "").strip()
+        team_id = payload.get("teamId")
+        budget = Decimal(str(payload.get("budget", "0") or "0"))
+        start_date_str = payload.get("startDate")
+        end_date_str = payload.get("endDate")
+
+        if not all([name, manager_id, team_id, start_date_str, end_date_str]):
+            raise BadRequest("Missing required project fields.")
+
+        project_manager = g.db.get(Employee, int(manager_id))
+        if not project_manager:
+            raise BadRequest("Project manager not found.")
+
+        client = g.db.get(Client, int(client_id)) if client_id else None
+        if not client and client_name:
+            client = Client(name=client_name)
+            g.db.add(client)
+            g.db.flush()
+        if not client:
+            raise BadRequest("Client selection is required.")
+
+        team = g.db.get(Team, int(team_id))
+        if not team:
+            raise BadRequest("Team not found.")
+
         try:
-            user = require_login()
-        except Redirect as redirect_exc:
-            return redirect(redirect_exc.location)
+            start_date_value = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+            end_date_value = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            raise BadRequest("Invalid date format. Use YYYY-MM-DD.")
+        if end_date_value < start_date_value:
+            raise BadRequest("End date must be on or after start date.")
 
-        project = g.db.execute(
-            select(Project)
-            .where(Project.id == project_id)
-            .options(
-                selectinload(Project.project_manager),
-                selectinload(Project.client),
-                selectinload(Project.tasks)
-                .selectinload(Task.assignee),
-            )
-        ).scalar_one_or_none()
+        project = Project(
+            name=name,
+            project_manager=project_manager,
+            client=client,
+            team=team,
+            budget=budget,
+            start_date=start_date_value,
+            end_date=end_date_value,
+            created_by=user,
+        )
+        g.db.add(project)
+        try:
+            g.db.commit()
+        except IntegrityError:
+            g.db.rollback()
+            raise BadRequest("A project with that name already exists.")
+        return jsonify({"project": serialize_project(project, include_tasks=False)})
 
-        if not project:
-            flash("Project not found.", "danger")
-            return redirect(url_for("dashboard"))
-
-        months = g.db.scalars(select(Month).order_by(Month.yyyy_mm)).all()
-        activities = g.db.scalars(select(Activity).order_by(Activity.type)).all()
-        employees = g.db.scalars(select(Employee).order_by(Employee.name)).all()
-
-        task_map = {
-            task.id: g.db.execute(
-                select(TaskActivity)
-                .where(TaskActivity.task_id == task.id)
+    @app.route("/api/projects/<int:project_id>", methods=["GET"])
+    def get_project(project_id: int):
+        user = current_user()
+        project = (
+            g.db.execute(
+                select(Project)
+                .where(Project.id == project_id)
                 .options(
-                    selectinload(TaskActivity.month),
-                    selectinload(TaskActivity.activity),
+                    selectinload(Project.project_manager),
+                    selectinload(Project.client),
+                    selectinload(Project.team),
+                    selectinload(Project.created_by),
+                    selectinload(Project.tasks)
+                    .selectinload(Task.assignee),
+                    selectinload(Project.tasks)
+                    .selectinload(Task.task_activities)
+                    .selectinload(TaskActivity.month),
+                    selectinload(Project.tasks)
+                    .selectinload(Task.task_activities)
+                    .selectinload(TaskActivity.activity),
                 )
             )
             .scalars()
-            .all()
+            .first()
+        )
+        if not project:
+            raise BadRequest("Project not found.")
+
+        task_map: Dict[int, List[TaskActivity]] = {
+            task.id: list(task.task_activities)
             for task in project.tasks
         }
+        detail = {
+            "project": serialize_project(project, include_tasks=True),
+            "ganttData": build_gantt_data(project, task_map),
+            "mandayChart": build_manday_chart(project, task_map),
+            "summary": build_summary_stats(project),
+            "canManageTasks": bool(user and user.id == project.project_manager_id),
+        }
+        return jsonify(detail)
 
-        gantt_data = build_gantt_data(project, task_map)
-        manday_chart = build_manday_chart(project, task_map)
-        summary_stats = build_summary_stats(project)
-
-        return render_template(
-            "project_detail.html",
-            user=user,
-            project=project,
-            months=months,
-            activities=activities,
-            employees=employees,
-            task_map=task_map,
-            gantt_data=json.dumps(gantt_data),
-            manday_chart=json.dumps(manday_chart),
-            summary_stats=summary_stats,
-            can_manage_tasks=user.id == project.project_manager_id,
-        )
-
-    @app.route("/projects/<int:project_id>/tasks/new", methods=["POST"])
+    @app.route("/api/projects/<int:project_id>/tasks", methods=["POST"])
     def create_task(project_id: int):
-        try:
-            user = require_login()
-        except Redirect as redirect_exc:
-            return redirect(redirect_exc.location)
-
+        user = require_user()
         project = g.db.get(Project, project_id)
         if not project:
-            flash("Project not found.", "danger")
-            return redirect(url_for("dashboard"))
-
+            raise BadRequest("Project not found.")
         if project.project_manager_id != user.id:
-            flash("Only the project manager can add tasks.", "danger")
-            return redirect(url_for("project_detail", project_id=project.id))
+            raise Unauthorized("Only the project manager can add tasks.")
 
-        name = request.form.get("task_name", "").strip()
-        assignee_id = request.form.get("assignee_id")
-        manday = request.form.get("manday", "0")
-        budget = request.form.get("budget", "0")
-        status = request.form.get("status", "Planned")
-        month_ids = request.form.getlist("month_ids[]")
-        activity_ids = request.form.getlist("activity_ids[]")
+        payload = request.get_json(force=True, silent=True) or {}
+        name = (payload.get("name") or "").strip()
+        assignee_id = payload.get("assigneeId")
+        manday = Decimal(str(payload.get("manday", "0") or "0"))
+        budget = Decimal(str(payload.get("budget", "0") or "0"))
+        status = (payload.get("status") or "Planned").strip() or "Planned"
+        activities_payload = payload.get("activities") or []
 
         if not name or not assignee_id:
-            flash("Task name and assignee are required.", "danger")
-            return redirect(url_for("project_detail", project_id=project.id))
-
-        try:
-            manday_value = Decimal(manday)
-            budget_value = Decimal(budget)
-        except Exception:
-            flash("Manday and budget must be numeric.", "danger")
-            return redirect(url_for("project_detail", project_id=project.id))
+            raise BadRequest("Task name and assignee are required.")
 
         assignee = g.db.get(Employee, int(assignee_id))
         if not assignee:
-            flash("Selected assignee not found.", "danger")
-            return redirect(url_for("project_detail", project_id=project.id))
+            raise BadRequest("Assignee not found.")
 
         task = Task(
             name=name,
             project=project,
             assignee=assignee,
-            manday=manday_value,
-            budget=budget_value,
+            manday=manday,
+            budget=budget,
             status=status,
         )
         g.db.add(task)
         g.db.flush()
 
-        pairs = list(zip(month_ids, activity_ids))
-        added_pairs: set[Tuple[int, int]] = set()
-        for month_id_str, activity_id_str in pairs:
-            if not month_id_str or not activity_id_str:
+        seen_pairs: set[Tuple[int, int]] = set()
+        for entry in activities_payload:
+            month_id = entry.get("monthId")
+            activity_id = entry.get("activityId")
+            if not month_id or not activity_id:
                 continue
-            pair = (int(month_id_str), int(activity_id_str))
-            if pair in added_pairs:
+            pair = (int(month_id), int(activity_id))
+            if pair in seen_pairs:
                 continue
             month = g.db.get(Month, pair[0])
             activity = g.db.get(Activity, pair[1])
             if not month or not activity:
                 continue
             g.db.add(TaskActivity(task=task, month=month, activity=activity))
-            added_pairs.add(pair)
+            seen_pairs.add(pair)
 
-        if not added_pairs:
-            flash("Please assign at least one month and activity to the task.", "danger")
+        if not seen_pairs:
             g.db.rollback()
-            return redirect(url_for("project_detail", project_id=project.id))
+            raise BadRequest("At least one month/activity pair is required.")
 
         try:
             g.db.commit()
-            flash("Task created successfully.", "success")
         except IntegrityError:
             g.db.rollback()
-            flash("A task with that name already exists for this project.", "danger")
+            raise BadRequest("A task with that name already exists for this project.")
 
-        return redirect(url_for("project_detail", project_id=project.id))
+        task = (
+            g.db.execute(
+                select(Task)
+                .where(Task.id == task.id)
+                .options(
+                    selectinload(Task.assignee),
+                    selectinload(Task.task_activities)
+                    .selectinload(TaskActivity.month),
+                    selectinload(Task.task_activities)
+                    .selectinload(TaskActivity.activity),
+                )
+            )
+            .scalars()
+            .first()
+        )
+        return jsonify({"task": serialize_task(task)})
+
+    if static_folder:
+        @app.route("/", defaults={"path": ""})
+        @app.route("/<path:path>")
+        def serve_frontend(path: str):
+            target = Path(static_folder) / path
+            if path and target.exists() and target.is_file():
+                return send_from_directory(static_folder, path)
+            return send_from_directory(static_folder, "index.html")
 
     return app
 
 
+def serialize_employee(employee: Employee) -> Dict[str, Any]:
+    return {
+        "id": employee.id,
+        "name": employee.name,
+        "team": serialize_team(employee.team) if employee.team else None,
+    }
+
+
+def serialize_team(team: Team) -> Dict[str, Any]:
+    return {"id": team.id, "name": team.name}
+
+
+def serialize_client(client: Client) -> Dict[str, Any]:
+    return {"id": client.id, "name": client.name}
+
+
+def serialize_activity(activity: Activity) -> Dict[str, Any]:
+    return {"id": activity.id, "type": activity.type}
+
+
+def serialize_month(month: Month) -> Dict[str, Any]:
+    return {"id": month.id, "label": month.yyyy_mm}
+
+
+def serialize_task(task: Task | None) -> Dict[str, Any]:
+    if not task:
+        return {}
+    return {
+        "id": task.id,
+        "name": task.name,
+        "manday": float(task.manday or 0),
+        "budget": float(task.budget or 0),
+        "status": task.status,
+        "assignee": serialize_employee(task.assignee) if task.assignee else None,
+        "activities": [
+            {
+                "month": serialize_month(activity.month),
+                "activity": serialize_activity(activity.activity),
+            }
+            for activity in sorted(
+                task.task_activities,
+                key=lambda ta: ta.month.yyyy_mm if ta.month else "",
+            )
+        ],
+    }
+
+
+def serialize_project(project: Project, include_tasks: bool = False) -> Dict[str, Any]:
+    payload = {
+        "id": project.id,
+        "name": project.name,
+        "budget": float(project.budget or 0),
+        "status": project.status,
+        "startDate": project.start_date.isoformat(),
+        "endDate": project.end_date.isoformat(),
+        "projectManager": serialize_employee(project.project_manager) if project.project_manager else None,
+        "client": serialize_client(project.client) if project.client else None,
+        "team": serialize_team(project.team) if project.team else None,
+        "createdBy": serialize_employee(project.created_by) if project.created_by else None,
+    }
+    if include_tasks:
+        payload["tasks"] = [serialize_task(task) for task in project.tasks]
+    return payload
+
+
+def serialize_project_summary(project: Project, user_id: int | None = None) -> Dict[str, Any]:
+    summary = serialize_project(project, include_tasks=False)
+    summary["isProjectManager"] = user_id == project.project_manager_id if user_id else False
+    return summary
+
+
 def build_gantt_data(project: Project, task_map: Dict[int, List[TaskActivity]]) -> List[Dict[str, Any]]:
-    data: List[Dict[str, Any]] = []
-    data.append(
+    data: List[Dict[str, Any]] = [
         {
             "id": f"project-{project.id}",
             "name": project.name,
             "start": project.start_date.isoformat(),
             "end": project.end_date.isoformat(),
             "progress": 0,
-            "custom_class": "gantt-project",
+            "customClass": "gantt-project",
         }
-    )
+    ]
     for task in project.tasks:
         activities = task_map.get(task.id, [])
         if not activities:
@@ -423,7 +481,7 @@ def build_gantt_data(project: Project, task_map: Dict[int, List[TaskActivity]]) 
                 "end": end_date.isoformat(),
                 "progress": 0,
                 "dependencies": f"project-{project.id}",
-                "custom_class": "gantt-task",
+                "customClass": "gantt-task",
             }
         )
     return data
@@ -435,7 +493,7 @@ def build_manday_chart(project: Project, task_map: Dict[int, List[TaskActivity]]
         activities = task_map.get(task.id, [])
         if not activities:
             continue
-        months = sorted({activity.month.yyyy_mm for activity in activities})
+        months = sorted({activity.month.yyyy_mm for activity in activities if activity.month})
         if not months:
             continue
         share = (task.manday or Decimal("0")) / Decimal(len(months))
@@ -452,19 +510,18 @@ def build_summary_stats(project: Project) -> Dict[str, Any]:
     total_manday = sum(float(task.manday or 0) for task in project.tasks)
     total_budget = float(project.budget or 0) + sum(float(task.budget or 0) for task in project.tasks)
     return {
-        "duration_months": duration_months,
-        "total_manday": round(total_manday, 2),
-        "total_budget": round(total_budget, 2),
+        "durationMonths": duration_months,
+        "totalManday": round(total_manday, 2),
+        "totalBudget": round(total_budget, 2),
     }
 
 
 def compute_task_window(activities: List[TaskActivity]) -> Tuple[date, date]:
-    months = [activity.month.yyyy_mm for activity in activities]
+    months = [activity.month.yyyy_mm for activity in activities if activity.month]
     parsed_dates = [parse_month_label(label) for label in months]
     start = min(parsed_dates)
     end = max(parsed_dates)
     end_year, end_month = end.year, end.month
-    # Move to last day of the end month
     if end_month == 12:
         final_date = date(end_year, 12, 31)
     else:

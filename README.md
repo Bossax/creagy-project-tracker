@@ -1,67 +1,73 @@
 # Creagy Project Tracker
 
-Web-based tracker for Creagy projects, tasks, and project activities. The application allows employees to create projects, manage associated tasks, assign month-level activities, and view project progress through a Gantt timeline and manday analytics.
+Web app for managing Creagy projects, tasks, and activity schedules. Employees log in with their name, create projects, assign tasks with month-by-month activities, and review project health via a Gantt timeline, manday bar chart, and summary statistics.
 
 ## Tech Stack
 
-- Python 3.10+
-- Flask + SQLAlchemy (SQLite storage by default)
-- Bootstrap 5, Chart.js, and Frappe Gantt on the frontend
+- **Backend:** Python 3.10+, Flask, SQLAlchemy, SQLite (default)
+- **Frontend:** React (Vite), Chart.js via `react-chartjs-2`, Frappe Gantt
+- **Auth:** Cookie-based Flask session keyed by employee profile
 
-## Getting Started
+## Backend Setup
 
-1. **Install dependencies**
+```bash
+python -m venv .venv
+.\\.venv\\Scripts\\activate
+pip install -r requirements.txt  # or `pip install .`
+python -m backend.seed           # one-time seed (employees, teams, months, activities)
+python -m backend.app            # serves JSON API at http://localhost:8000
+```
 
-   ```bash
-   python -m venv .venv
-   .\.venv\Scripts\activate
-   pip install -r requirements.txt  # or `pip install -e .` if you prefer pyproject usage
-   ```
+Environment variables:
 
-   If you are using the `pyproject.toml`, you can alternatively run:
+- `DATABASE_URL` – override SQLite path if needed
+- `SECRET_KEY` – Flask session secret
+- `CORS_ALLOWED_ORIGINS` – comma-separated list for dev origins (defaults allow localhost)
 
-   ```bash
-   pip install .
-   ```
+## Frontend Setup (Vite + React)
 
-2. **Seed the database**
+```bash
+cd frontend
+npm install
+npm run dev     # http://localhost:5173 with proxy to the backend API
+```
 
-   ```bash
-    python -m backend.seed
-   ```
+Build for production and let Flask serve the compiled assets:
 
-   This populates teams, employees, months, and the default activity types.
+```bash
+npm run build           # outputs to frontend/dist
+python -m backend.app   # now serves the React app + API on port 8000
+```
 
-3. **Run the web app**
+## Core Features
 
-   ```bash
-   python -m backend.app
-   ```
+- **Employee session:** Select or create an employee profile; session persists in cookies.
+- **Project lifecycle:** Capture client, manager, team, budget, and schedule metadata.
+- **Task planning:** Project manager only; assign manday/budget and map activities per month.
+- **Visual analytics:**
+  - Frappe Gantt timeline for project and tasks
+  - Monthly manday bar chart with Chart.js
+  - Summary box (duration, total manday, total budget)
 
-   The development server starts on `http://0.0.0.0:8000`. You can change the port by editing the `app.run` call at the bottom of `backend/app.py`.
+## API Overview
 
-## Key Features
-
-- **Employee selection on entry**: Pick an existing employee profile or create one on the spot; selection persists in the session.
-- **Project management**: Create projects with required metadata, linking clients, teams, and budget.
-- **Task assignment**: Only the project manager can add tasks, specifying manday, budget, and per-month activity allocations.
-- **Timeline & analytics**:
-  - Gantt chart showing project span and task windows (derived from assigned months).
-  - Monthly manday chart distributing task mandays evenly across the assigned months.
-  - Summary stats covering duration, total manday, and aggregated budgets.
+- `GET /api/session` – current user; `POST /api/session` – login; `DELETE /api/session` – logout
+- `GET/POST /api/employees` – list or create employees
+- `GET /api/teams|clients|activities|months` – lookup metadata
+- `GET /api/projects` – project summaries; `POST /api/projects` – create project
+- `GET /api/projects/<id>` – detail with tasks and visualization payloads
+- `POST /api/projects/<id>/tasks` – add task (+ month/activity assignments)
 
 ## Development Notes
 
-- The SQLite database is stored under `instance/creagy.db`. Delete the file to start fresh.
-- Adjust `DATABASE_URL` in `backend/database.py` to target PostgreSQL, MySQL, etc.
-- Static assets live in `static/`; Jinja templates under `templates/`.
+- SQLite database lives in `instance/creagy.db`. Delete to reset.
+- Update `backend/database.py` for alternative databases.
+- Vite dev server proxies `/api` calls to `localhost:8000`; adjust `vite.config.js` as needed.
 
 ## Testing
-
-Set up your test environment and run:
 
 ```bash
 pytest
 ```
 
-Test scaffolding is minimal; add coverage as the app grows.
+Add additional tests alongside new features. Frontend tests can be added via Vite/Jest or Vitest if desired.
