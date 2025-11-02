@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Login • Creagy Project Tracker{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card shadow-sm mb-4">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">Select Your Employee Profile</h5>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('login') }}">
+          <div class="mb-3">
+            <label class="form-label" for="employee_id">Employee</label>
+            <select class="form-select" id="employee_id" name="employee_id" required>
+              <option value="" selected>Select employee</option>
+              {% for employee in employees %}
+              <option value="{{ employee.id }}">{{ employee.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button class="btn btn-primary" type="submit">Enter App</button>
+        </form>
+      </div>
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-header bg-secondary text-white">
+        <h5 class="mb-0">Create New Employee</h5>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('create_employee') }}">
+          <div class="mb-3">
+            <label class="form-label" for="name">Employee Name</label>
+            <input class="form-control" id="name" name="name" placeholder="Enter new employee name" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="team_id">Team (optional)</label>
+            <select class="form-select" id="team_id" name="team_id">
+              <option value="" selected>Assign to team</option>
+              {% for team in teams %}
+              <option value="{{ team.id }}">{{ team.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button class="btn btn-success" type="submit">Create &amp; Login</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
