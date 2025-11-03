@@ -10,13 +10,17 @@ Web app for managing Creagy projects, tasks, and activity schedules. Employees l
 
 ## Backend Setup
 
-```bash
-python -m venv .venv
-.\\.venv\\Scripts\\activate
-pip install -r requirements.txt  # or `pip install .`
-python -m backend.seed           # one-time seed (employees, teams, months, activities)
-python -m backend.app            # serves JSON API at http://localhost:8000
+> Commands below assume Windows PowerShell. Swap in your shell’s activation command if you use something else.
+
+```powershell
+py -3 -m venv .venv
+.\\.venv\\Scripts\\Activate.ps1
+pip install -r requirements.txt    # or: pip install .
+python -m backend.seed             # seeds teams, employees, months, activities
+python -m backend.app              # runs API server on http://localhost:8000
 ```
+
+If `python` resolves to Python 2 for you, stick with `py -3` in the commands above.
 
 Environment variables:
 
@@ -26,18 +30,28 @@ Environment variables:
 
 ## Frontend Setup (Vite + React)
 
-```bash
+```powershell
 cd frontend
 npm install
-npm run dev     # http://localhost:5173 with proxy to the backend API
+npm run dev    # launches http://localhost:5173 with proxy to Flask API
 ```
 
-Build for production and let Flask serve the compiled assets:
+### Windows tips
 
-```bash
-npm run build           # outputs to frontend/dist
-python -m backend.app   # now serves the React app + API on port 8000
-```
+- If you use `cmd.exe`, swap the activation step for `.\.venv\Scripts\activate.bat`.
+- To set temporary environment variables in PowerShell (for example when pointing to a cloud DB), use:
+  ```powershell
+  $env:DATABASE_URL = "postgresql://user:pass@host/db"
+  $env:SECRET_KEY = "dev-secret"
+  ```
+  For persistent values use `setx` (requires a new shell to pick up the change).
+- When you’re ready for production, build the SPA and serve it from Flask:
+  ```powershell
+  cd frontend
+  npm run build         # emits frontend/dist
+  cd ..
+  python -m backend.app # Flask now serves both API and built assets on port 8000
+  ```
 
 ## Core Features
 
